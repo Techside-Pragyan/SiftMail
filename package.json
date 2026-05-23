@@ -1,0 +1,15 @@
+{
+  "name": "siftmail-root",
+  "version": "1.0.0",
+  "description": "AI Smart Email Sorter Web Application Monorepo",
+  "private": true,
+  "scripts": {
+    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
+    "dev": "npx concurrently -n \"server,client\" -c \"magenta,cyan\" \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
+    "build:all": "npm run build --prefix backend && npm run build --prefix frontend",
+    "start:all": "npx concurrently -n \"server,client\" -c \"magenta,cyan\" \"npm run start --prefix backend\" \"npm run dev --prefix frontend\""
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
