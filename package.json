@@ -1,15 +1,14 @@
 {
-  "name": "siftmail-root",
+  "name": "siftmail",
   "version": "1.0.0",
-  "description": "AI Smart Email Sorter Web Application Monorepo",
-  "private": true,
+  "description": "AI-Powered Email Intelligence & Action Management Workspace",
   "scripts": {
-    "install:all": "npm install && npm install --prefix backend && npm install --prefix frontend",
-    "dev": "npx concurrently -n \"server,client\" -c \"magenta,cyan\" \"npm run dev --prefix backend\" \"npm run dev --prefix frontend\"",
-    "build:all": "npm run build --prefix backend && npm run build --prefix frontend",
-    "start:all": "npx concurrently -n \"server,client\" -c \"magenta,cyan\" \"npm run start --prefix backend\" \"npm run dev --prefix frontend\""
+    "dev:backend": "npm --prefix backend run dev",
+    "dev:frontend": "npm --prefix frontend run dev",
+    "install:all": "npm install && npm --prefix backend install && npm --prefix frontend install",
+    "build": "npm --prefix backend run build && npm --prefix frontend run build"
   },
-  "devDependencies": {
-    "concurrently": "^8.2.2"
-  }
+  "keywords": ["ai", "email", "gemini", "task-management", "analytics", "react", "express"],
+  "author": "Techside-Pragyan",
+  "license": "MIT"
 }
