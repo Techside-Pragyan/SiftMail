@@ -1,167 +1,177 @@
-# SiftMail — Database Design & Data Architecture
+# SiftMail — PostgreSQL Database Design & Architecture
 
 ---
 
-## 1. Entity Relationship (ER) Diagram
+## 1. PostgreSQL Relational Architecture
+
+The persistence layer is powered by **PostgreSQL 16**, leveraging native UUID generation, JSONB columns for dynamic LLM structures, and foreign key cascading.
 
 ```mermaid
 erDiagram
     USERS ||--o{ EMAILS : owns
-    USERS ||--o{ TASKS : assigns
-    EMAILS ||--o| AI_ANALYSES : has
-    AI_ANALYSES ||--o{ SUGGESTED_REPLIES : contains
-    EMAILS ||--o{ TASKS : generates
+    USERS ||--o{ TASKS : assigned
+    EMAILS ||--o| AI_ANALYSES : contains
+    EMAILS ||--o{ TASKS : extracts
     USERS ||--o{ ANALYTICS_SNAPSHOTS : logs
 
     USERS {
         uuid id PK
-        string email UK
-        string name
-        string password_hash
+        varchar email UK
+        varchar full_name
+        varchar hashed_password
         jsonb preferences
-        timestamp created_at
-        timestamp updated_at
+        timestamptz created_at
     }
 
     EMAILS {
         uuid id PK
         uuid user_id FK
-        string message_id UK
-        string sender_name
-        string sender_email
-        string recipient_email
-        string subject
-        text body_text
-        text body_html
-        string snippet
-        enum folder
+        varchar message_id UK
+        varchar sender_name
+        varchar sender_email
+        varchar recipient_email
+        text subject
+        text body
+        varchar snippet
+        varchar folder
         boolean is_read
         boolean is_starred
-        string[] tags
-        timestamp received_at
-        timestamp created_at
+        varchar[] tags
+        timestamptz received_at
+        timestamptz created_at
     }
 
     AI_ANALYSES {
         uuid id PK
         uuid email_id FK,UK
-        enum urgency
+        varchar urgency
         integer urgency_score
-        enum sentiment
+        varchar sentiment
         text summary
         text[] key_takeaways
-        string model_version
-        timestamp analyzed_at
-    }
-
-    SUGGESTED_REPLIES {
-        uuid id PK
-        uuid ai_analysis_id FK
-        string tone
-        text reply_body
-        timestamp created_at
+        jsonb suggested_replies
+        timestamptz analyzed_at
     }
 
     TASKS {
         uuid id PK
         uuid user_id FK
         uuid source_email_id FK
-        string title
-        string due_date_str
-        timestamp due_date_timestamp
-        enum priority
-        enum status
-        timestamp created_at
-        timestamp completed_at
+        text title
+        varchar due_date
+        varchar priority
+        varchar status
+        timestamptz created_at
+        timestamptz completed_at
     }
 
     ANALYTICS_SNAPSHOTS {
         uuid id PK
         uuid user_id FK
-        date metric_date
-        integer total_emails
-        integer critical_count
-        integer high_count
-        integer medium_count
-        integer low_count
-        integer tasks_created
-        integer tasks_completed
-        float estimated_minutes_saved
-        timestamp recorded_at
+        date snapshot_date
+        integer emails_processed
+        integer pending_tasks
+        integer completed_tasks
+        float hours_saved
+        jsonb urgency_breakdown
+        timestamptz created_at
     }
 ```
 
 ---
 
-## 2. Table Schemas & Data Dictionaries
+## 2. PostgreSQL DDL (Data Definition Language)
 
-### 2.1 Table: `users`
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY, DEFAULT gen_random_uuid()` | Unique user identifier |
-| `email` | `VARCHAR(255)` | `NOT NULL, UNIQUE` | User login email address |
-| `name` | `VARCHAR(128)` | `NOT NULL` | User full name |
-| `password_hash` | `VARCHAR(255)` | `NOT NULL` | Bcrypt hashed password |
-| `preferences` | `JSONB` | `DEFAULT '{}'` | User UI/AI preferences (default tone, auto-sift) |
-| `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Account creation timestamp |
+```sql
+-- Enable UUID extension
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 
-### 2.2 Table: `emails`
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY, DEFAULT gen_random_uuid()` | SiftMail internal email ID |
-| `user_id` | `UUID` | `NOT NULL, REFERENCES users(id) ON DELETE CASCADE` | Owner user ID |
-| `message_id` | `VARCHAR(255)` | `NULLABLE, UNIQUE` | Provider RFC 822 Message-ID |
-| `sender_name` | `VARCHAR(128)` | `NOT NULL` | Sender display name |
-| `sender_email` | `VARCHAR(255)` | `NOT NULL` | Sender email address |
-| `recipient_email`| `VARCHAR(255)` | `NOT NULL` | Recipient email address |
-| `subject` | `TEXT` | `NOT NULL` | Email subject line |
-| `body_text` | `TEXT` | `NOT NULL` | Stripped plaintext content |
-| `snippet` | `VARCHAR(300)` | `NOT NULL` | Preview snippet for list views |
-| `folder` | `VARCHAR(32)` | `DEFAULT 'inbox'` | `inbox`, `sent`, `starred`, `archive`, `trash` |
-| `is_read` | `BOOLEAN` | `DEFAULT FALSE` | Read status |
-| `is_starred` | `BOOLEAN` | `DEFAULT FALSE` | Starred bookmark flag |
-| `tags` | `TEXT[]` | `DEFAULT ARRAY[]::TEXT[]` | Categorical tags |
-| `received_at` | `TIMESTAMPTZ` | `NOT NULL` | When message arrived |
+-- 1. Users Table
+CREATE TABLE users (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email VARCHAR(255) NOT NULL UNIQUE,
+    full_name VARCHAR(128) NOT NULL,
+    hashed_password VARCHAR(255) NOT NULL,
+    preferences JSONB DEFAULT '{"theme": "dark", "auto_sift": true}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-### 2.3 Table: `ai_analyses`
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY, DEFAULT gen_random_uuid()` | Analysis record ID |
-| `email_id` | `UUID` | `NOT NULL, UNIQUE, REFERENCES emails(id) ON DELETE CASCADE` | One-to-one link to email |
-| `urgency` | `VARCHAR(16)` | `NOT NULL` | `low`, `medium`, `high`, `critical` |
-| `urgency_score` | `INTEGER` | `NOT NULL, CHECK (urgency_score BETWEEN 0 AND 100)` | Score 0 to 100 |
-| `sentiment` | `VARCHAR(32)` | `NOT NULL` | `positive`, `neutral`, `urgent`, `frustrated`, `inquiry` |
-| `summary` | `TEXT` | `NOT NULL` | 2-sentence executive TL;DR |
-| `key_takeaways` | `TEXT[]` | `NOT NULL` | Array of key bullet points |
-| `analyzed_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Timestamp of AI execution |
+-- 2. Emails Table
+CREATE TABLE emails (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    message_id VARCHAR(255) UNIQUE,
+    sender_name VARCHAR(128) NOT NULL,
+    sender_email VARCHAR(255) NOT NULL,
+    recipient_email VARCHAR(255) NOT NULL,
+    subject TEXT NOT NULL,
+    body TEXT NOT NULL,
+    snippet VARCHAR(300) NOT NULL,
+    folder VARCHAR(32) NOT NULL DEFAULT 'inbox',
+    is_read BOOLEAN NOT NULL DEFAULT FALSE,
+    is_starred BOOLEAN NOT NULL DEFAULT FALSE,
+    tags TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    received_at TIMESTAMPTZ NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-### 2.4 Table: `tasks`
-| Column | Type | Constraints | Description |
-| :--- | :--- | :--- | :--- |
-| `id` | `UUID` | `PRIMARY KEY, DEFAULT gen_random_uuid()` | Task ID |
-| `user_id` | `UUID` | `NOT NULL, REFERENCES users(id) ON DELETE CASCADE` | Assigned user ID |
-| `source_email_id`| `UUID` | `NULLABLE, REFERENCES emails(id) ON DELETE SET NULL` | Originating email reference |
-| `title` | `TEXT` | `NOT NULL` | Action item description |
-| `due_date_str` | `VARCHAR(64)` | `NULLABLE` | Display deadline (e.g. "Today, 2 PM") |
-| `priority` | `VARCHAR(16)` | `DEFAULT 'medium'` | `urgent`, `high`, `medium`, `low` |
-| `status` | `VARCHAR(16)` | `DEFAULT 'pending'` | `pending`, `in_progress`, `completed` |
-| `created_at` | `TIMESTAMPTZ` | `DEFAULT NOW()` | Creation timestamp |
-| `completed_at` | `TIMESTAMPTZ` | `NULLABLE` | Completion timestamp |
+-- 3. AI Analysis Table
+CREATE TABLE ai_analyses (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    email_id UUID NOT NULL UNIQUE REFERENCES emails(id) ON DELETE CASCADE,
+    urgency VARCHAR(16) NOT NULL CHECK (urgency IN ('low', 'medium', 'high', 'critical')),
+    urgency_score INTEGER NOT NULL CHECK (urgency_score BETWEEN 0 AND 100),
+    sentiment VARCHAR(32) NOT NULL,
+    summary TEXT NOT NULL,
+    key_takeaways TEXT[] NOT NULL DEFAULT ARRAY[]::TEXT[],
+    suggested_replies JSONB NOT NULL DEFAULT '[]'::jsonb,
+    analyzed_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+-- 4. Tasks Table
+CREATE TABLE tasks (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    source_email_id UUID REFERENCES emails(id) ON DELETE SET NULL,
+    title TEXT NOT NULL,
+    due_date VARCHAR(64),
+    priority VARCHAR(16) NOT NULL DEFAULT 'medium' CHECK (priority IN ('low', 'medium', 'high', 'urgent')),
+    status VARCHAR(16) NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'in_progress', 'completed')),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    completed_at TIMESTAMPTZ
+);
+
+-- 5. Analytics Snapshots Table
+CREATE TABLE analytics_snapshots (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    user_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    snapshot_date DATE NOT NULL,
+    emails_processed INTEGER NOT NULL DEFAULT 0,
+    pending_tasks INTEGER NOT NULL DEFAULT 0,
+    completed_tasks INTEGER NOT NULL DEFAULT 0,
+    hours_saved NUMERIC(5,2) NOT NULL DEFAULT 0.00,
+    urgency_breakdown JSONB NOT NULL DEFAULT '{"critical": 0, "high": 0, "medium": 0, "low": 0}'::jsonb,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    CONSTRAINT uq_user_snapshot_date UNIQUE (user_id, snapshot_date)
+);
+```
 
 ---
 
-## 3. Indexing Strategy
+## 3. High-Performance Indexing Strategy
 
 ```sql
--- Fast inbox retrieval by user, folder, and date
+-- Fast inbox retrieval by folder, read status, and arrival date
 CREATE INDEX idx_emails_user_folder_date ON emails (user_id, folder, received_at DESC);
+CREATE INDEX idx_emails_unread ON emails (user_id, is_read) WHERE is_read = FALSE;
 
--- Fast lookup for unread count badge
-CREATE INDEX idx_emails_user_unread ON emails (user_id, is_read) WHERE is_read = FALSE;
+-- Fast join for AI analysis per email
+CREATE INDEX idx_ai_analyses_email_id ON ai_analyses (email_id);
 
--- Fast join for AI Analysis
-CREATE INDEX idx_ai_analysis_email ON ai_analyses (email_id);
-
--- Fast Kanban query by user and status
+-- Fast Kanban retrieval by status and priority
 CREATE INDEX idx_tasks_user_status ON tasks (user_id, status, priority);
+
+-- Full text search indexing on email subjects & bodies
+CREATE INDEX idx_emails_fts ON emails USING GIN (to_tsvector('english', subject || ' ' || body));
 ```
