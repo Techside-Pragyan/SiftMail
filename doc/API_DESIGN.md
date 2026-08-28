@@ -1,42 +1,46 @@
-# SiftMail — API Design & Interface Specifications
+# SiftMail — FastAPI & REST API Design Specification
 
 ---
 
 ## 1. Global API Standards
 
-- **Base URL**: `http://localhost:5000/api` (Production: `https://api.siftmail.ai/api`)
-- **Transport**: HTTPS (TLS 1.3)
-- **Data Format**: `application/json; charset=utf-8`
-- **Authentication**: `Authorization: Bearer <JWT_TOKEN>` (Demo requests fall back to guest session automatically).
+- **Backend Framework**: Python FastAPI 0.110+ (ASGI)
+- **Base URL**: `http://localhost:8000/api` (Production: `https://api.siftmail.ai/api`)
+- **Interactive Documentation**:
+  - Swagger UI: `http://localhost:8000/docs`
+  - ReDoc: `http://localhost:8000/redoc`
+  - OpenAPI JSON: `http://localhost:8000/openapi.json`
+- **Data Format**: `application/json`
+- **Authentication**: `Authorization: Bearer <JWT_TOKEN>` (Demo guest access supported for instant evaluation).
 
 ---
 
-## 2. API Endpoints Catalog
+## 2. FastAPI Endpoints Catalog
 
-### 2.1 System & Health
+### 2.1 Health & Diagnostics
 
 #### `GET /api/health`
-- **Description**: Verifies API availability and AI engine connectivity.
 - **Response**: `200 OK`
 ```json
 {
   "status": "healthy",
-  "timestamp": "2026-08-28T14:15:00.000Z",
-  "service": "SiftMail Backend API",
-  "aiEngine": "gemini-2.5-flash (active)"
+  "service": "SiftMail Python Backend (FastAPI)",
+  "database": "PostgreSQL 16 (Connected)",
+  "aiEngine": "Google Gemini 2.5 Flash + Python NLP Heuristics",
+  "timestamp": "2026-08-28T14:25:00.000Z"
 }
 ```
 
 ---
 
-### 2.2 Emails & Sifting Endpoints
+### 2.2 Emails & AI Sifting
 
 #### `GET /api/emails`
-- **Description**: Retrieves emails filtered by folder, urgency, or search term.
-- **Query Params**:
-  - `folder` (optional, default: `inbox`): `inbox | sent | starred | archive | trash`
-  - `urgency` (optional): `critical | high | medium | low`
-  - `q` (optional): search query string
+- **Description**: Returns emails for the authenticated user with optional folder/urgency filtering and search.
+- **Query Parameters**:
+  - `folder` (string, optional, default: `"inbox"`): `inbox | sent | starred | archive | trash`
+  - `urgency` (string, optional): `critical | high | medium | low`
+  - `q` (string, optional): Search query
 - **Response**: `200 OK`
 ```json
 {
@@ -44,7 +48,7 @@
   "count": 4,
   "data": [
     {
-      "id": "em-001",
+      "id": "7b5b7625-1e3e-4b45-a9f8-b3915bcfa001",
       "sender": "Sarah Jenkins",
       "senderEmail": "sarah.j@acmepartners.com",
       "recipient": "me@siftmail.ai",
@@ -85,28 +89,28 @@
 
 ---
 
-#### `POST /api/emails/:id/sift`
-- **Description**: Triggers AI analysis on a specific email, computes urgency score, generates takeaways, and auto-syncs action items to the task board.
-- **URL Param**: `id` (e.g. `em-001`)
+#### `POST /api/emails/{id}/sift`
+- **Description**: Triggers Python AI service to analyze email, extract tasks, and persist structured analysis to PostgreSQL.
+- **URL Param**: `id` (UUID)
 - **Response**: `200 OK`
 ```json
 {
   "success": true,
-  "message": "Email successfully sifted and action items extracted",
+  "message": "Email successfully sifted and tasks extracted",
   "data": {
-    "emailId": "em-001",
+    "emailId": "7b5b7625-1e3e-4b45-a9f8-b3915bcfa001",
     "aiAnalysis": {
       "urgency": "critical",
       "urgencyScore": 94,
       "sentiment": "urgent",
-      "summary": "Executive summary of the thread...",
-      "keyTakeaways": ["Item 1", "Item 2"],
+      "summary": "Sarah requires urgent verification of Q3 budget sheet line items...",
+      "keyTakeaways": ["Deadline: 2:00 PM EST"],
       "suggestedReplies": [
-        { "tone": "Concise", "text": "Received. Handling this now." }
+        { "tone": "Concise", "text": "Received. Working on updates now." }
       ],
       "extractedTasks": [
         {
-          "title": "Verify infrastructure expenditure",
+          "title": "Verify infrastructure expenditure in sheet 3",
           "dueDate": "Today, 1:30 PM",
           "priority": "urgent"
         }
@@ -119,30 +123,30 @@
 
 ---
 
-#### `POST /api/emails/:id/reply`
-- **Description**: Generates an intelligent, context-aware email reply draft based on selected tone and custom user notes.
+#### `POST /api/emails/{id}/reply`
+- **Description**: Generates an intelligent markdown email reply in specified tone.
 - **Request Body**:
 ```json
 {
-  "tone": "Friendly" | "Professional" | "Concise" | "Executive",
-  "customNotes": "Mention I can join the meeting 10 minutes early"
+  "tone": "Professional" | "Friendly" | "Concise" | "Executive",
+  "customNotes": "Let her know I can join the sync 10 mins early"
 }
 ```
 - **Response**: `200 OK`
 ```json
 {
   "success": true,
-  "tone": "Friendly",
-  "replyText": "Hey Sarah,\n\nThanks for the update! I will review the budget line items and send over the PDF before 2:00 PM. Also, I can join the board meeting 10 minutes early if you'd like to sync beforehand.\n\nBest,\nPragyan"
+  "tone": "Professional",
+  "replyText": "Hi Sarah,\n\nThank you for the update. I am verifying the sheet 3 line items now and updating slide 8. You will receive the clean PDF export before 2:00 PM EST.\n\nBest regards,\nPragyan Paramita"
 }
 ```
 
 ---
 
-### 2.3 Task & Kanban Endpoints
+### 2.3 Tasks & Kanban Endpoints
 
 #### `GET /api/tasks`
-- **Description**: Returns all extracted and custom action items.
+- **Description**: Retrieves all extracted tasks from PostgreSQL.
 - **Response**: `200 OK`
 ```json
 {
@@ -150,12 +154,12 @@
   "count": 4,
   "data": [
     {
-      "id": "tsk-101",
+      "id": "e8d64115-4c6e-44db-99e9-d91ab2d80101",
       "title": "Verify infrastructure expenditure in Q3 budget sheet 3",
       "dueDate": "Today, 1:30 PM",
       "priority": "urgent",
       "status": "pending",
-      "sourceEmailId": "em-001",
+      "sourceEmailId": "7b5b7625-1e3e-4b45-a9f8-b3915bcfa001",
       "sourceSubject": "URGENT: Client Review Q3 Roadmap & Budget Sign-off",
       "createdAt": "2026-08-28T13:45:00.000Z"
     }
@@ -163,13 +167,13 @@
 }
 ```
 
-#### `PATCH /api/tasks/:id`
-- **Description**: Updates task status, priority, or deadline.
+#### `PATCH /api/tasks/{id}`
+- **Description**: Updates task status (`pending`, `in_progress`, `completed`) or priority.
 - **Request Body**:
 ```json
 {
-  "status": "in_progress" | "completed" | "pending",
-  "priority": "urgent" | "high" | "medium" | "low"
+  "status": "in_progress",
+  "priority": "urgent"
 }
 ```
 - **Response**: `200 OK`
@@ -177,9 +181,9 @@
 {
   "success": true,
   "data": {
-    "id": "tsk-101",
+    "id": "e8d64115-4c6e-44db-99e9-d91ab2d80101",
     "status": "in_progress",
-    "updatedAt": "2026-08-28T14:20:00.000Z"
+    "updatedAt": "2026-08-28T14:30:00.000Z"
   }
 }
 ```
@@ -189,7 +193,7 @@
 ### 2.4 Analytics Endpoints
 
 #### `GET /api/analytics`
-- **Description**: Aggregates inbox productivity KPIs, urgency distributions, and weekly velocity.
+- **Description**: Aggregates inbox productivity KPIs, urgency distributions, and weekly velocity from PostgreSQL.
 - **Response**: `200 OK`
 ```json
 {
