@@ -8,92 +8,85 @@
 
 | Layer | Technology | Rationale & Tradeoffs |
 | :--- | :--- | :--- |
-| **Frontend Framework** | React 18 + Vite + TypeScript | Blazing fast HMR, sub-second production bundle, strict type safety with backend API models. |
-| **State Management** | React Context + Local Hooks | Lightweight, zero-dependency, minimal boilerplate for interactive views without Redux overhead. |
-| **Styling & UI Tokens** | Pure Vanilla CSS (CSS Variables + Glassmorphism) | Zero runtime overhead, 100% style customization, no CSS-in-JS performance bottlenecks. |
-| **Icons & Media** | Lucide React | High-performance tree-shakeable SVG icon set with consistent visual styling. |
-| **Backend Runtime** | Node.js (v20+ LTS) + TypeScript | High I/O throughput, unified full-stack TypeScript interfaces, event-driven async processing. |
-| **API Server** | Express.js 4.21+ | Battle-tested, modular middleware architecture, easily extensible to WebSockets/SSE. |
-| **AI / LLM Engine** | Google Gemini 2.5 Flash SDK (`@google/genai`) | Ultra-low latency (<1.5s), 1M token context window, native JSON schema enforcement, low inference cost. |
-| **Fallback AI Engine** | Regex & Heuristic NLP Pipeline | Guarantees 100% offline uptime and zero-key local testing without API failures. |
-| **Data Persistence** | In-Memory Reactive Store with SQLite / Prisma Ready Models | Instant development turnaround with zero database setup hurdles; easily swappable for PostgreSQL. |
-| **Authentication** | JWT (JSON Web Tokens) + BcryptJS | Stateless, secure header-based authentication with demo guest session fallback. |
+| **Backend Framework** | **Python 3.11+ (FastAPI + Uvicorn)** | High-performance asynchronous ASGI framework with native type hinting, automatic OpenAPI docs, and seamless integration with ML/NLP libraries. |
+| **AI / NLP Engine** | **Google Gemini 2.5 SDK (`google-genai`) + Spacy / Heuristics** | Rapid LLM structured extraction paired with native Python NLP capabilities for offline fallback and token preprocessing. |
+| **Database & ORM** | **PostgreSQL 16 + SQLAlchemy 2.0 (Async) + Alembic** | Robust relational persistence, JSONB support for dynamic AI metadata, ACID compliance, and Alembic database version control. |
+| **Frontend Framework** | **Pure React 18 + Vite (JavaScript / TypeScript)** | Ultra-clean, modular Component architecture without heavy boilerplate, blazing fast HMR and sub-second builds. |
+| **Styling & UI Tokens** | **Pure Vanilla CSS (CSS Custom Properties + Glassmorphism)** | 100% control over design tokens, dark glassmorphic aesthetics, zero runtime CSS-in-JS overhead. |
+| **Authentication** | **OAuth2 + JWT (python-jose + passlib[bcrypt])** | Standard stateless bearer authentication with optional demo guest fallback. |
 
 ---
 
-## 2. Technical Architecture & Component Specifications
+## 2. Technical Architecture Diagram
 
 ```mermaid
 graph TD
-    Client["Client Browser (React 18 + Vite)"]
-    API["Express API Gateway (:5000)"]
-    AuthMid["Auth Middleware (JWT/Demo)"]
+    Client["Client Browser (Pure React 18 + Vanilla CSS)"]
+    API["FastAPI Gateway / Uvicorn ASGI Server (:8000)"]
+    AuthMid["JWT & Demo Auth Security Middleware"]
     
-    subgraph Services ["Backend Services Layer"]
-        AIService["AI Engine (Gemini 2.5 + Heuristic Fallback)"]
-        EmailService["Email Ingestion & Triage Service"]
-        TaskService["Task Extraction & Kanban Service"]
-        AnalyticsService["Productivity Analytics Aggregator"]
+    subgraph Services ["Python Backend Services Layer"]
+        AIService["AI Service (google-genai + NLP Engine)"]
+        EmailService["Email Ingestion & Sifting Service"]
+        TaskService["Task & Commitment Sync Service"]
+        AnalyticsService["Analytics & Metric Aggregator"]
     end
 
-    subgraph DataLayer ["Data & Storage Layer"]
-        MemDB[("In-Memory Reactive Data Store")]
-        SQLDB[("PostgreSQL / SQLite Storage")]
-        Cache[("Redis Session & Sift Cache")]
+    subgraph DataLayer ["PostgreSQL Persistence Layer"]
+        PostgresDB[("PostgreSQL 16 Database")]
+        SQLAlchemy["SQLAlchemy 2.0 Async Session Manager"]
+        Alembic["Alembic Migration Engine"]
     end
 
-    Client -->|HTTP/REST /api/*| API
+    Client -->|HTTP/REST (JSON)| API
     API --> AuthMid
     AuthMid --> EmailService
     AuthMid --> TaskService
     AuthMid --> AnalyticsService
+    
     EmailService --> AIService
-    EmailService --> MemDB
-    TaskService --> MemDB
-    AnalyticsService --> MemDB
-    MemDB -.-> SQLDB
-    AIService -.-> Cache
+    EmailService --> SQLAlchemy
+    TaskService --> SQLAlchemy
+    AnalyticsService --> SQLAlchemy
+    
+    SQLAlchemy --> PostgresDB
+    Alembic -.-> PostgresDB
 ```
 
 ---
 
-## 3. Detailed Service Specifications
+## 3. Python Service Specifications
 
-### 3.1 AI Service (`AIService`)
-- **Primary Model**: `gemini-2.5-flash`
-- **Output Schema Enforcement**: Structured JSON via `responseMimeType: "application/json"`.
-- **System Prompts**:
-  - Email Sifting: Extracts `urgency`, `urgencyScore`, `sentiment`, `summary`, `keyTakeaways`, `suggestedReplies`, and `extractedTasks`.
-  - Reply Generator: Takes `subject`, `body`, `sender`, `tone`, and optional `customNotes` to return contextual markdown text.
+### 3.1 AI Service (`app/services/ai_service.py`)
+- **Primary SDK**: `google-genai` (Gemini 2.5 Flash)
+- **Schema Enforcement**: Pydantic v2 `BaseModel` parsing with strict output formatting.
 - **Failover Strategy**:
-  1. Check if `GEMINI_API_KEY` is present and valid.
-  2. Invoke Gemini API with a 3.5s timeout.
-  3. If rate-limited (HTTP 429), errored (HTTP 5xx), or offline, immediately execute `heuristicAnalyze()`.
+  1. Inspect `GEMINI_API_KEY` from environment variables.
+  2. Invoke Gemini 2.5 Flash with a 3.5s timeout.
+  3. If rate-limited or offline, invoke local Python heuristic NLP parser (`heuristic_analyze`).
 
-### 3.2 Email Ingestion & Normalization Service
-- **Input Formats**: RFC 822 / RFC 2822 raw text, JSON payload, or OAuth synced threads.
-- **Sanitization**: Strip malicious `<script>`, `<iframe>`, `data:` URLs via DOMPurify/Regex before rendering in UI.
-- **Thread Grouping**: Uses `Message-ID`, `In-Reply-To`, and `References` headers to reconstruct complete discussion threads.
+### 3.2 Database Engine (`app/db/session.py`)
+- **Async Engine**: `create_async_engine("postgresql+asyncpg://user:pass@localhost:5432/siftmail_db")`
+- **Session Factory**: `async_sessionmaker(bind=engine, expire_on_commit=False)`
+- **Connection Pool**: Min 5 connections, max 20 connections with automatic recycling.
 
-### 3.3 Task & Kanban Sync Engine
-- **Task De-duplication**: Uses hash of `sourceEmailId + taskTitle` to prevent duplicate action item generation upon re-sifting.
-- **State Machine Transitions**:
-  - `pending` $\leftrightarrow$ `in_progress` $\leftrightarrow$ `completed`
-  - Deleting an email cascades a soft-archive flag to associated tasks without corrupting task history.
+### 3.3 Task Sync & Sifter Service (`app/services/email_service.py`)
+- Automatically generates relational `Task` records in PostgreSQL with foreign key references to the source `Email` upon sifting.
+- De-duplicates action items using a composite hash (`email_id + title`).
 
 ---
 
 ## 4. API Interface Technical Contract
 
-### 4.1 Global Response Envelope
-All API endpoints adhere to the standard REST envelope:
+### 4.1 Global Response Standard
+All FastAPI responses return validated Pydantic models:
 ```json
 {
   "success": true,
   "data": {},
   "error": null,
   "meta": {
-    "timestamp": "2026-08-28T14:10:00Z",
+    "timestamp": "2026-08-28T14:20:00Z",
     "version": "1.0.0"
   }
 }
@@ -102,17 +95,8 @@ All API endpoints adhere to the standard REST envelope:
 ### 4.2 Error Handling Standard
 | HTTP Status | Error Code | Description |
 | :--- | :--- | :--- |
-| `400 Bad Request` | `VALIDATION_ERROR` | Request body missing required fields or malformed JSON |
-| `401 Unauthorized` | `UNAUTHORIZED` | Missing or expired JWT token |
-| `404 Not Found` | `RESOURCE_NOT_FOUND` | Email ID or Task ID not found in database |
-| `429 Too Many Requests`| `AI_RATE_LIMIT` | Gemini API quota exhausted; fell back to heuristics |
+| `400 Bad Request` | `VALIDATION_ERROR` | Pydantic validation failure on request payload |
+| `401 Unauthorized` | `UNAUTHORIZED` | Invalid or missing JWT token |
+| `404 Not Found` | `RESOURCE_NOT_FOUND` | Email or Task UUID not found in PostgreSQL |
+| `429 Too Many Requests`| `RATE_LIMIT_EXCEEDED` | AI endpoint request limit reached |
 | `500 Server Error` | `INTERNAL_ERROR` | Unhandled backend exception |
-
----
-
-## 5. Security & Compliance Requirements
-
-1. **CORS Policy**: Configured to accept requests strictly from `FRONTEND_URL` (`http://localhost:5173` or production domain).
-2. **Environment Variable Management**: All sensitive credentials (`GEMINI_API_KEY`, `JWT_SECRET`, `DATABASE_URL`) loaded exclusively through `.env` with `.env.example` templates committed.
-3. **Payload Sanitization**: Maximum request payload size capped at `10MB` for email body and attachment metadata.
-4. **Rate Limiting**: AI endpoints throttled to 60 requests per minute per IP to protect upstream token budgets.

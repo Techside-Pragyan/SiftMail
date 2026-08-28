@@ -3,140 +3,87 @@
 ---
 
 ## 1. Architectural Philosophy & Principles
-SiftMail is architected on modern cloud-native, modular service principles designed for high throughput, low latency, and zero single-points-of-failure.
-
-### 1.1 Core Architectural Principles
-1. **Separation of Concerns**: Clear boundary separation between Presentation (Vite + React SPA), API Gateway / Orchestration (Express.js), AI Worker Services (Gemini / Heuristic Engine), and Persistence.
-2. **Resilience & Graceful Degradation**: If external LLM APIs fail or exceed rate limits, the system seamlessly falls back to fast local NLP heuristics without interrupting the user workflow.
-3. **Stateless Service Layer**: All API instances are stateless, enabling horizontal scaling behind load balancers.
-4. **Reactive Data Sync**: Optimistic UI updates on the frontend paired with idempotent REST mutations on the backend.
+SiftMail is structured as a decoupled, modern three-tier web platform consisting of:
+1. **Pure React Presentation Tier**: High-speed, responsive Single Page Application built in Pure React + Vite, communicating exclusively via REST APIs.
+2. **Python FastAPI Intelligence Tier**: Asynchronous Python ASGI server handling business logic, email ingestion, NLP extraction, and LLM orchestration.
+3. **PostgreSQL Relational Persistence Tier**: ACID-compliant relational data store with JSONB support, indexing, and foreign key integrity.
 
 ---
 
-## 2. System Architecture Diagram
+## 2. High-Level Architecture Diagram
 
 ```mermaid
 graph TB
-    subgraph ClientLayer ["1. Presentation Layer (Vite + React 18)"]
-        UI_Inbox["Inbox & Reader Component"]
-        UI_Sifter["AI Sifter & Insights Panel"]
-        UI_Tasks["Action Kanban Board"]
+    subgraph ClientLayer ["1. Presentation Layer (Pure React + Vanilla CSS)"]
+        UI_Inbox["Inbox & Email Viewer"]
+        UI_Sifter["AI Sifter & Priority Inspector"]
+        UI_Kanban["Action Items Kanban Board"]
         UI_Analytics["Analytics Dashboard"]
-        UI_Composer["Smart Reply Composer"]
-        StateStore["Client State / Context Engine"]
+        UI_Composer["Smart Reply Modal"]
     end
 
-    subgraph GatewayLayer ["2. API Gateway & Middleware Layer"]
-        ReverseProxy["Reverse Proxy / Nginx / Vite Dev Proxy"]
-        ExpressApp["Express Application Server (:5000)"]
-        CORS["CORS & Helmet Security"]
-        AuthMiddleware["JWT & Demo Auth Interceptor"]
-        RateLimiter["Rate Limiting & Throttling"]
+    subgraph APILayer ["2. FastAPI ASGI Application Server (:8000)"]
+        Uvicorn["Uvicorn ASGI Server"]
+        CORSMid["CORS & Security Middleware"]
+        AuthMid["JWT & OAuth2 Interceptor"]
+        
+        subgraph Routers ["FastAPI APIRouters"]
+            AuthRouter["/api/auth (Login/Register/Me)"]
+            EmailRouter["/api/emails (List, Sift, Reply)"]
+            TaskRouter["/api/tasks (CRUD, Status)"]
+            AnalyticsRouter["/api/analytics (KPIs, Velocity)"]
+        end
     end
 
-    subgraph ServiceLayer ["3. Business & Intelligence Services"]
-        EmailService["Email Ingestion & Triage Service"]
-        AIService["AI Orchestration Service"]
-        TaskService["Task & Commitment Sync Service"]
-        AnalyticsService["Metrics & Productivity Aggregator"]
+    subgraph ServiceLayer ["3. Python Intelligence & Service Layer"]
+        AIService["AI Engine (Gemini 2.5 + Python Heuristics)"]
+        EmailService["Email Pipeline & Parsing Engine"]
+        TaskService["Task Extraction & Sync Manager"]
+        AnalyticsService["Metrics Aggregator"]
     end
 
-    subgraph ModelLayer ["4. AI & Inference Layer"]
-        GeminiSDK["Google Gemini 2.5 Flash Engine"]
-        HeuristicNLP["Local Heuristic & Regex Engine"]
+    subgraph DBLayer ["4. PostgreSQL Database Layer (:5432)"]
+        SQLAlchemy["SQLAlchemy 2.0 Async Session Pool"]
+        Alembic["Alembic Schema Migrations"]
+        PostgresDB[("PostgreSQL 16 DB (users, emails, tasks, ai_analyses)")]
     end
 
-    subgraph StorageLayer ["5. Persistence & Cache Layer"]
-        ReactiveStore[("In-Memory Reactive DB (Dev/Demo)")]
-        PersistentDB[("PostgreSQL / SQLite / Prisma (Prod)")]
-        RedisCache[("Redis Query & Response Cache")]
-    end
-
-    %% Wiring
-    ClientLayer -->|HTTPS / JSON| ReverseProxy
-    ReverseProxy --> ExpressApp
-    ExpressApp --> CORS --> AuthMiddleware --> RateLimiter
+    ClientLayer -->|REST / JSON| Uvicorn
+    Uvicorn --> CORSMid --> AuthMid
+    AuthMid --> Routers
     
-    RateLimiter --> EmailService
-    RateLimiter --> TaskService
-    RateLimiter --> AnalyticsService
+    EmailRouter --> EmailService
+    EmailRouter --> AIService
+    TaskRouter --> TaskService
+    AnalyticsRouter --> AnalyticsService
     
-    EmailService --> AIService
-    AIService --> GeminiSDK
-    AIService --> HeuristicNLP
+    EmailService --> SQLAlchemy
+    TaskService --> SQLAlchemy
+    AnalyticsService --> SQLAlchemy
     
-    EmailService --> ReactiveStore
-    TaskService --> ReactiveStore
-    AnalyticsService --> ReactiveStore
-    
-    ReactiveStore -.-> PersistentDB
-    AIService -.-> RedisCache
+    SQLAlchemy --> PostgresDB
+    Alembic -.-> PostgresDB
 ```
 
 ---
 
 ## 3. Component Deep Dive
 
-### 3.1 Presentation Layer (Frontend SPA)
-- **Vite 5 / React 18 SPA**: Delivered as single-page application with code splitting.
-- **Glassmorphic Theme System**: Custom CSS variables providing dark-mode first visual hierarchy, micro-interactions, responsive typography, and glowing priority accents.
-- **Modular Component Tree**:
-  - `Navbar` & `Sidebar`: Global navigation, unread counters, and folder filtering.
-  - `InboxView`: Search, multi-criteria filtering, thread list, and thread detail view.
-  - `AISifterView`: Interactive deep inspection with live trigger to re-sift with custom focus.
-  - `TaskBoardView`: 3-column Kanban board (`Pending`, `In Progress`, `Completed`) with inline task creation and priority tagging.
-  - `AnalyticsView`: Visual KPI cards and SVG-based velocity charts.
-  - `ReplyModal`: Multi-tone reply generator with instant copy-to-clipboard or send actions.
+### 3.1 Frontend Presentation Tier (Pure React)
+- **Framework**: Pure React 18 with Vite.
+- **Styling Architecture**: Vanilla CSS using custom CSS properties (`var(--accent-purple)`, `var(--bg-glass)`), providing dark-mode first glassmorphism without heavy third-party CSS dependencies.
+- **Key Modules**:
+  - `InboxView.jsx`: Thread list, urgency indicators, search bar, and reader.
+  - `AISifterView.jsx`: Deep breakdown of AI insights, urgency dials, and key takeaways.
+  - `TaskBoardView.jsx`: Interactive 3-column Kanban board (`Pending`, `In Progress`, `Completed`).
+  - `AnalyticsView.jsx`: Visual KPI cards and SVG-based velocity trend charts.
 
-### 3.2 Gateway & Routing Layer
-- **Express.js Router Modules**:
-  - `/api/auth`: User registration, login, and demo session provisioning.
-  - `/api/emails`: Inbox CRUD, folder filtering, and AI `/sift` / `/reply` triggers.
-  - `/api/tasks`: Action item lifecycle management.
-  - `/api/analytics`: Aggregated productivity statistics.
-  - `/api/health`: Liveness and readiness probes.
+### 3.2 Backend Service Tier (Python FastAPI)
+- **FastAPI**: Async ASGI application leveraging Python type hints (`pydantic.BaseModel`).
+- **AI Service**: Orchestrates Google Gemini 2.5 Flash API calls with fallback to Python heuristic tokenizers and regex extractors.
+- **Dependency Injection**: FastAPI `Depends(get_db)` provides per-request async database sessions with automatic rollback on error.
 
-### 3.3 AI Orchestration Layer
-- **Unified Interface**: Decouples the rest of the application from specific AI providers.
-- **Multi-Engine Pipeline**:
-  ```
-  Incoming Email Body 
-      │
-      ▼
-  Check GEMINI_API_KEY Configured?
-     ├── Yes ──► Send to Gemini 2.5 Flash (Timeout: 3500ms)
-     │                │
-     │                ├── Success ──► Parse & Return JSON
-     │                └── Failure ──► Fallback to Heuristic Engine
-     │
-     └── No  ───────────────────────► Execute Heuristic Engine
-  ```
-
----
-
-## 4. Scalability, Resiliency & Availability
-
-| Dimension | Strategy | Implementation |
-| :--- | :--- | :--- |
-| **Horizontal Scaling** | Stateless application tier | Multiple Express worker instances running behind Nginx / Cloudflare Load Balancers. |
-| **Caching** | Caching LLM Sifting Results | SHA-256 hash of `email.subject + email.body` cached so identical emails are not re-analyzed. |
-| **Database Scaling** | Read Replicas & Connection Pooling | Master-Replica PostgreSQL architecture with PgBouncer connection pooler. |
-| **Fault Tolerance** | Dual-Engine Failover | Built-in zero-dependency Heuristic AI guarantees zero downtime even during full external LLM outages. |
-| **Backpressure** | Batch Queue Ingestion | High-volume inbox sync handled via BullMQ / Redis queues to throttle AI inference calls. |
-
----
-
-## 5. Security & Privacy Architecture
-
-```mermaid
-graph LR
-    User(["Client"]) -->|"TLS 1.3"| Gateway["API Gateway"]
-    Gateway -->|"JWT Verification"| Middleware["Auth Middleware"]
-    Middleware -->|"Sanitize Body"| Sanitizer["XSS & MIME Filter"]
-    Sanitizer -->|"Redact PII (Optional)"| PIIFilter["PII Redactor"]
-    PIIFilter -->|"Ephemeral Payload"| AIService["AI Sifter"]
-```
-
-1. **Zero-Knowledge Architecture Option**: Only message metadata (subject, sender, stripped body) is passed to the AI engine ephemerally; raw credentials are never logged or exported.
-2. **JWT Stateless Auth**: Signed with HMAC SHA-256 using 256-bit environment secrets.
-3. **CORS Isolation**: Explicit origin whitelisting blocking unauthorized cross-origin requests.
+### 3.3 Database Tier (PostgreSQL)
+- **PostgreSQL 16**: Houses relational tables (`users`, `emails`, `ai_analyses`, `tasks`, `analytics_snapshots`).
+- **JSONB Capabilities**: Stores dynamic AI output arrays (`key_takeaways`, `suggested_replies`) with full JSON querying capabilities.
+- **Connection Pooling**: Managed via `asyncpg` driver for maximum concurrent throughput.
